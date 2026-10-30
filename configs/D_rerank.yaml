@@ -1,0 +1,12 @@
+# D 组：C + bge-reranker-v2-m3 重排（关闭阈值，隔离重排本身的收益）
+name: D_rerank
+description: C + bge-reranker-v2-m3 重排（不含阈值拒答）
+answer_mode: plain
+structured: false
+retrieval:
+  collection: customer_service_docs_v2
+  mode: hybrid
+  rerank: true
+  top_n: 5
+  expand_parent: true
+  apply_threshold: false

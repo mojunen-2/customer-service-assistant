@@ -1,0 +1,91 @@
+# 一条命令起服务：docker compose up -d
+#
+# 说明：
+#  * 默认**复用宿主机上已有的 Milvus**（本机已有 milvus-standalone，避免端口冲突）；
+#    如需自带 Milvus，用：docker compose --profile local-milvus up -d
+#  * 密钥从项目根目录的 .env 读取（先复制 .env.example 为 .env 并填入 DEEPSEEK_* / SILICONFLOW_*）
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 国内网络可用：BASE_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
+        #               PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.13-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    image: customer-service-assistant-api:1.0.0
+    container_name: customer-service-assistant-api
+    env_file:
+      - .env
+    environment:
+      # 容器内通过 host.docker.internal 访问宿主机的 Milvus
+      CSA_MILVUS_URI: http://host.docker.internal:19530
+      CSA_MILVUS_DB: customer_service_assistant
+      CSA_KNOWLEDGE_DIR: /knowledge
+      CSA_LOG_LEVEL: INFO
+      CSA_ENABLE_HITL: "true"
+    volumes:
+      # 知识库单一事实来源：只读挂载，供 /ingest 使用
+      - ./data/knowledge/knowledge.txt:/knowledge/knowledge.txt:ro
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # 可选：自带 Milvus standalone（默认不启动，避免与宿主机实例抢端口）
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    profiles: ["local-milvus"]
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    profiles: ["local-milvus"]
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    image: milvusdb/milvus:v3.0.2
+    profiles: ["local-milvus"]
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - minio
+
+volumes:
+  milvus_data:

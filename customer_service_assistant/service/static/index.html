@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Customer Service Assistant · 客服 Agent 演示</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; background: #f6f7f9; color: #1f2328; }
+    header { background: #1f2937; color: #fff; padding: 14px 20px; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+    header .hint { font-size: 12px; color: #c9d1d9; font-weight: 400; }
+    header button { background: #374151; font-size: 12px; padding: 6px 10px; }
+    main { max-width: 960px; margin: 0 auto; padding: 16px 20px 60px; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; }
+    input[type=text] { flex: 1; padding: 10px 12px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 14px; }
+    button { padding: 10px 16px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+    button:disabled { background: #9aa4b2; cursor: not-allowed; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+    .card h3 { margin: 0 0 8px; font-size: 13px; color: #6b7280; font-weight: 600; letter-spacing: .3px; }
+    .tools span { display: inline-block; background: #eef2ff; color: #3730a3; border-radius: 4px; padding: 2px 8px; margin: 2px 6px 2px 0; font-size: 12px; }
+    .tools span.pending { background: #fef3c7; color: #92400e; }
+    .citations li { margin-bottom: 6px; font-size: 13px; }
+    .citations .q { color: #374151; }
+    .citations .s { color: #6b7280; font-size: 12px; }
+    pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; font-size: 14px; line-height: 1.6; }
+    pre.placeholder { color: #9aa4b2; }
+    .meta { color: #6b7280; font-size: 12px; margin-top: 6px; }
+    .badge { background: #fef3c7; color: #92400e; border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+    .badge.err { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+<header>
+  <span>Customer Service Assistant — SSE 流式演示</span>
+  <span class="hint">复杂问题需要 10~20 秒（多轮工具调用），页面会实时显示进度 ✓ <button id="newThread">新会话</button></span>
+</header>
+<main>
+  <div class="row">
+    <input type="text" id="q" placeholder="例如：基础版某月调用 18000 次 API，超额多少？" />
+    <button id="send">提问</button>
+  </div>
+  <div class="card">
+    <h3>工具调用</h3>
+    <div class="tools" id="tools"><span class="placeholder">—</span></div>
+  </div>
+  <div class="card">
+    <h3>回答（逐字流式）</h3>
+    <pre id="answer" class="placeholder">等待提问…</pre>
+    <div class="meta" id="meta"></div>
+  </div>
+  <div class="card">
+    <h3>检索到的引用</h3>
+    <ul class="citations" id="citations"><li>—</li></ul>
+  </div>
+</main>
+<script>
+const qEl = document.getElementById('q'), sendEl = document.getElementById('send');
+const toolsEl = document.getElementById('tools'), answerEl = document.getElementById('answer');
+const citationsEl = document.getElementById('citations'), metaEl = document.getElementById('meta');
+const newThreadEl = document.getElementById('newThread');
+let threadId = null, answerText = '', rawTokens = '', sawAnswer = false;
+let startedAt = 0, ticker = null, toolStates = [];
+
+/* ==== SSE 解析：这段会被 tests/test_static_page.py 提取出来，用 node 跑真实字节流 ==== */
+function splitSseFrames(buffer) {
+  // SSE 的行结束符可以是 \n、\r\n（sse-starlette 默认）或 \r —— 三种都要认。
+  // 返回 { frames: [完整帧], rest: 还没收完的尾巴 }。
+  const parts = buffer.split(/\r\n\r\n|\n\n|\r\r/);
+  const rest = parts.pop();
+  return { frames: parts, rest: rest };
+}
+
+function parseSseFrame(frame) {
+  let event = null, data = null, id = null;
+  for (const line of frame.split(/\r\n|\n|\r/)) {
+    if (!line || line.startsWith(':')) continue;         // 注释/心跳行
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) {
+      let value = line.slice(5);
+      if (value.startsWith(' ')) value = value.slice(1);
+      data = (data === null) ? value : data + '\n' + value;   // 多行 data 按规范用 \n 连接
+    } else if (line.startsWith('id:')) id = line.slice(3).trim();
+  }
+  if (event === null && data === null) return null;
+  let payload = null;
+  if (data !== null) {
+    try { payload = JSON.parse(data); } catch (err) { payload = { _raw: data }; }
+  }
+  return { event: event || 'message', data: payload, id: id };
+}
+/* ==== SSE 解析结束 ==== */
+
+function escapeHtml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 极简渲染：只把 **加粗** 转成 <strong>，其余原样（先转义，避免 XSS）
+function renderText(text) {
+  return escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+
+function setAnswer(text, isPlaceholder) {
+  answerEl.className = isPlaceholder ? 'placeholder' : '';
+  answerEl.innerHTML = renderText(text);
+}
+
+function setMeta(text, isError) {
+  metaEl.innerHTML = isError ? '<span class="badge err">' + escapeHtml(text) + '</span>' : escapeHtml(text);
+}
+
+function renderTools() {
+  if (!toolStates.length) { toolsEl.innerHTML = '<span class="placeholder">—</span>'; return; }
+  toolsEl.innerHTML = toolStates.map(function (item) {
+    return '<span' + (item.done ? '' : ' class="pending"') + '>' + escapeHtml(item.name)
+      + (item.done ? ' ✓' : ' …') + '</span>';
+  }).join('');
+}
+
+function markTool(name, done) {
+  if (!name) return;
+  let target = null;
+  for (let i = toolStates.length - 1; i >= 0; i--) {
+    if (toolStates[i].name === name && !toolStates[i].done) { target = toolStates[i]; break; }
+  }
+  if (!target) {
+    if (done) {                    // 没收到 requested（例如工具直接返回）也要补一条
+      toolStates.push({ name: name, done: true });
+      renderTools();
+      return;
+    }
+    target = { name: name, done: false };
+    toolStates.push(target);
+  }
+  target.done = !!done;
+  renderTools();
+}
+
+function startTicker() {
+  startedAt = Date.now();
+  stopTicker();
+  ticker = setInterval(function () {
+    const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+    if (!sawAnswer) {
+      setMeta('已用时 ' + seconds + 's ｜ 模型正在检索 / 调用工具，请稍候…');
+    }
+  }, 200);
+}
+
+function stopTicker() {
+  if (ticker) { clearInterval(ticker); ticker = null; }
+}
+
+function resetView() {
+  toolStates = []; renderTools();
+  citationsEl.innerHTML = '<li>—</li>';
+  answerText = ''; rawTokens = ''; sawAnswer = false;
+  setAnswer('正在思考…', true);
+  setMeta('');
+}
+
+sendEl.onclick = async function () {
+  const message = qEl.value.trim();
+  if (!message) return;
+  resetView();
+  sendEl.disabled = true;
+  startTicker();
+  try {
+    const response = await fetch('/api/v1/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message, thread_id: threadId })
+    });
+    if (!response.ok || !response.body) {
+      const detail = await response.text().catch(function () { return ''; });
+      throw new Error('HTTP ' + response.status + ' ' + detail.slice(0, 200));
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const read = await reader.read();
+      if (read.done) break;
+      buffer += decoder.decode(read.value, { stream: true });
+      const split = splitSseFrames(buffer);
+      buffer = split.rest;
+      for (const frame of split.frames) {
+        const parsed = parseSseFrame(frame);
+        if (!parsed) continue;
+        handleEvent(parsed.event, parsed.data || {});
+      }
+    }
+  } catch (err) {
+    stopTicker();
+    setMeta('请求失败：' + err, true);
+    if (!answerText) setAnswer('（没有收到回答，请看上方错误提示）', false);
+  } finally {
+    stopTicker();
+    sendEl.disabled = false;
+  }
+};
+
+function handleEvent(event, data) {
+  if (event === 'meta') {
+    threadId = data.thread_id;
+    setMeta('会话 ' + (data.thread_id || '-') + ' ｜ 提示词 ' + (data.prompt_version || '-')
+      + ' ｜ 可用工具 ' + ((data.tools || []).length) + ' 个');
+  } else if (event === 'token') {
+    rawTokens += (data.text || '');
+    if (!sawAnswer) {
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      setMeta('已用时 ' + seconds + 's ｜ 模型正在生成（正文 ' + rawTokens.length + ' 字）…');
+    }
+  } else if (event === 'answer_token') {
+    if (!sawAnswer) { sawAnswer = true; answerText = ''; stopTicker(); }
+    answerText += (data.text || '');
+    setAnswer(answerText, false);
+    setMeta('会话 ' + (threadId || '-') + ' ｜ 正在流式输出结构化答案…');
+  } else if (event === 'answer_reset') {
+    answerText = ''; sawAnswer = false;
+    setAnswer('（上一次提交未通过引用校验，模型正在重写…）', true);
+    setMeta('引用校验拒绝，模型正在自我修正…');
+  } else if (event === 'tool_call') {
+    markTool(data.name, data.status === 'completed');
+  } else if (event === 'citation') {
+    if (citationsEl.firstElementChild && citationsEl.firstElementChild.textContent === '—') citationsEl.innerHTML = '';
+    citationsEl.innerHTML += '<li><span class="s">[' + escapeHtml(String(data.section || ''))
+      + '] score=' + escapeHtml(String(data.score)) + '</span><br/><span class="q">'
+      + escapeHtml(String(data.quote || '')) + '</span></li>';
+  } else if (event === 'interrupt') {
+    setMeta('需要人工确认：' + JSON.stringify(data.action_requests || []), true);
+  } else if (event === 'error') {
+    setMeta('服务端错误：' + (data.message || ''), true);
+  } else if (event === 'final') {
+    const answer = data.answer || null;
+    if (answer && answer.answer) {
+      answerText = answer.answer; sawAnswer = true;
+      setAnswer(answerText, false);
+    } else if (data.problem && !answerText) {
+      setAnswer('（没有拿到结构化答案：' + data.problem + '）', false);
+    }
+    const toolCount = (data.tool_calls || []).length;
+    setMeta('会话 ' + (data.thread_id || '-') + ' ｜ 工具调用 ' + toolCount + ' 次 ｜ 置信度 '
+      + ((answer && answer.confidence) || '-')
+      + (answer && answer.need_human ? ' ｜ 建议转人工' : '')
+      + ' ｜ 耗时 ' + data.elapsed + 's');
+  }
+}
+
+qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') sendEl.click(); });
+newThreadEl.onclick = function () {
+  threadId = null;
+  resetView();
+  setAnswer('已开启新会话（上下文已清空）。', true);
+  setMeta('');
+};
+</script>
+</body>
+</html>

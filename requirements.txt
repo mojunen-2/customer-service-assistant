@@ -1,0 +1,43 @@
+# =========================================================
+# Customer Service Assistant 客服 Agent —— 依赖清单
+# 版本为 2026-10-14 在本机 conda env `langchain` 中实测的版本号
+# 安装：python -m pip install -r requirements.txt
+# =========================================================
+
+# ---- P0 已启用 ----
+langchain==1.2.12
+langchain-core==1.2.18
+langchain-community==0.4.1
+langchain-text-splitters==1.1.1
+langchain-deepseek==1.0.1
+langgraph==1.1.2
+# 踩坑记录：langgraph-prebuilt 必须显式钉版本。不钉的话，容器里 pip 会装到更新的
+# langgraph-prebuilt（要求 langgraph.runtime.ExecutionInfo），启动即报
+# ImportError: cannot import name 'ExecutionInfo' from 'langgraph.runtime'
+langgraph-prebuilt==1.0.8
+langgraph-checkpoint==4.0.1
+langgraph-sdk==0.3.9
+pymilvus==2.6.12
+pydantic==2.12.5
+pydantic-settings==2.12.0
+python-dotenv==1.2.1
+langsmith==0.14.4
+loguru==0.7.3
+tenacity==9.1.4
+httpx==0.28.1
+pytest==9.0.3
+
+# ---- 按阶段启用（用到时再去掉注释）----
+# P2 检索层测试：mock rerank 的 HTTP 调用（已启用）
+respx==0.23.1
+# P4 服务化：FastAPI + SSE（已启用）
+fastapi==0.135.1
+uvicorn==0.46.0
+sse-starlette==3.3.4
+# P4 异步接口测试：TestClient 基于 httpx，同步即可覆盖，未额外引入 pytest-asyncio
+# P4 可选演示界面
+# streamlit==1.51.0
+
+# ---- 明确不引入（见设计文档 §3.2）----
+# rank_bm25 / jieba：Milvus 服务端已内置 BM25 + chinese 分析器
+# sentence-transformers / torch：embedding 与 rerank 全部走 API

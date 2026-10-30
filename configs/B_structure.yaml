@@ -1,0 +1,13 @@
+# B 组：A + 结构感知切分 + 元数据 + small-to-big
+# 检索仍是单路 dense（不引入 BM25 与重排），用来单独衡量"切分与上下文回填"的收益。
+name: B_structure
+description: 结构感知切分 + 元数据 + small-to-big 回填（仍为单路 dense）
+answer_mode: plain
+structured: false
+retrieval:
+  collection: customer_service_docs_v2
+  mode: dense
+  rerank: false
+  top_n: 5
+  expand_parent: true
+  apply_threshold: false

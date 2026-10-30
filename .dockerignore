@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+logs
+docs
+tests
+data/cache
+data/eval
+data/knowledge/*.txt
+data/index_manifest.json

@@ -1,0 +1,53 @@
+{
+  "description": "mock 订单数据：用于 check_order_context。真实系统里由订单中心提供；这里保持字段与形态一致，便于替换实现而不改 Agent。",
+  "orders": [
+    {
+      "order_id": "ORD-2026-0101",
+      "owner": "u-1001",
+      "plan": "basic",
+      "amount": 99.0,
+      "first_purchase_date": "2026-10-08",
+      "ai_qa_used": 300,
+      "api_calls_this_month": 18000,
+      "invoice_type": "none",
+      "has_upgraded": false,
+      "note": "基础版首购 6 天，用量约 6%，符合全额退款条件 → 用来验证「7 日内 + 用量 ≤10%」全退"
+    },
+    {
+      "order_id": "ORD-2026-0102",
+      "owner": "u-1001",
+      "plan": "pro",
+      "amount": 199.0,
+      "first_purchase_date": "2026-09-01",
+      "ai_qa_used": 20000,
+      "api_calls_this_month": 95000,
+      "invoice_type": "special_vat",
+      "has_upgraded": true,
+      "note": "专业版已开专票且发生过升级、用量 66% → 用来验证「超 50% 不退」与专票阻塞"
+    },
+    {
+      "order_id": "ORD-2026-0103",
+      "owner": "u-1002",
+      "plan": "basic",
+      "amount": 99.0,
+      "first_purchase_date": "2026-10-13",
+      "ai_qa_used": 500,
+      "api_calls_this_month": 12000,
+      "invoice_type": "normal",
+      "has_upgraded": false,
+      "note": "基础版用量恰好 10% → 用来验证「未超过 10% 全退」的边界"
+    },
+    {
+      "order_id": "ORD-2026-0104",
+      "owner": "u-1003",
+      "plan": "enterprise",
+      "amount": 48000.0,
+      "first_purchase_date": "2026-06-15",
+      "ai_qa_used": 12000,
+      "api_calls_this_month": 400000,
+      "invoice_type": "special_vat",
+      "has_upgraded": false,
+      "note": "企业版 → 用来验证「默认不支持线上退款，需联合审批」"
+    }
+  ]
+}

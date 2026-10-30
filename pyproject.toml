@@ -1,0 +1,14 @@
+[project]
+name = "customer-service-assistant"
+version = "1.0.0"
+description = "客服知识库 Agent：混合检索 + 工具化计算 + 引用校验 + 评测闭环"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# 默认不跑 integration（需要真实 Milvus）：需要时用 `pytest -m integration`
+addopts = "-q -m 'not integration'"
+markers = [
+    "integration: 需要真实 Milvus / 外部 API 的测试（默认不跑：-m 'not integration'）",
+]

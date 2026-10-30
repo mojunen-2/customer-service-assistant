@@ -1,0 +1,13 @@
+# E 组：D + 两级阈值拒答 + 引用校验 + 计算工具化（生产配置）
+# answer_mode=agent 时走 P3 的工具化 Agent：结构化答案、引用逐字校验、拒答转人工、数值交给 Python 工具。
+name: E_production
+description: D + 两级阈值拒答 + 引用校验 + 工具化计算（P3 工具化 Agent）
+answer_mode: agent
+structured: true
+retrieval:
+  collection: customer_service_docs_v2
+  mode: hybrid
+  rerank: true
+  top_n: 5
+  expand_parent: true
+  apply_threshold: true

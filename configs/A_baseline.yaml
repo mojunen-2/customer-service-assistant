@@ -1,0 +1,14 @@
+# A 组：修复后的 baseline（对照组）
+# 对应设计文档 §6.3 的 A —— P0 的 quick-create collection（45 段）+ 单路 dense top5，
+# 无元数据、无 small-to-big、无阈值、无工具、自由文本输出。
+name: A_baseline
+description: 单路 dense top5，无结构感知切分、无 small-to-big、无阈值、无工具
+answer_mode: plain
+structured: false
+retrieval:
+  collection: customer_service_docs
+  mode: dense
+  rerank: false
+  top_n: 5
+  expand_parent: false
+  apply_threshold: false

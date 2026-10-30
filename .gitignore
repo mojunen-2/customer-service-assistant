@@ -1,0 +1,31 @@
+# --- 密钥与本地配置 ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- 运行产物（可重新生成） ---
+logs/
+data/cache/
+data/index_manifest.json
+data/eval/results/
+docs/rank_eval_current.md
+
+# --- 暂不公开的私有资产 ---
+tests/
+data/eval/
+data/knowledge/*
+!data/knowledge/README.md
+
+# --- 系统文件 ---
+.DS_Store
+Thumbs.db

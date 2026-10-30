@@ -1,0 +1,12 @@
+# C 组：B + BM25 混合检索（weighted 0.2/0.8 融合，P2 实测优于 RRF）
+name: C_hybrid
+description: B + dense/BM25 混合检索（weighted 融合），无重排、无阈值
+answer_mode: plain
+structured: false
+retrieval:
+  collection: customer_service_docs_v2
+  mode: hybrid
+  rerank: false
+  top_n: 5
+  expand_parent: true
+  apply_threshold: false
